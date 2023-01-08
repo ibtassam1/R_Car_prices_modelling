@@ -1,0 +1,281 @@
+---
+title: "Car prices model"
+date: "2022-11-30"
+output: html_document
+---
+
+This R markdown file shows the data cleaning process as well as the process used to generate first order, interaction model and higher order models. It also shows the assumptions checks performed. However, the main elaboration on what each step means is in the report in PDF format.
+
+```{r, include=FALSE}
+# 'results hide' hides the output only
+# 'include false' hides code AND output
+library(dplyr) 
+library(ggplot2)
+library(ISLR)
+library(mosaic)
+library(tinytex)
+library(prettydoc)
+library(ggpubr)
+library(olsrr)
+library(leaps)
+library(GGally)
+```
+
+# Cleaning
+```{r}
+car_dataset <- read.csv('Car details.csv')
+
+#Remove rows with NA (221 rows)
+car_dataset <- car_dataset[complete.cases(car_dataset), ]
+
+```
+
+
+```{r}
+#Remove the 'kmpl' / 'km per kg' for the mileage column
+car_dataset$mileage = as.numeric(gsub("[^0-9.<>]", "", car_dataset$mileage))
+#Remove Zero value mileage rows (17 rows)
+car_dataset = car_dataset[car_dataset$mileage!=0, ]
+```
+
+```{r}
+#Remove the 'CC' for the engine column
+car_dataset$engine = as.numeric(gsub("[^0-9.<>]", "", car_dataset$engine))
+```
+
+```{r}
+#Remove the 'bhp' for the max_power column
+car_dataset$max_power = as.numeric(gsub("[^0-9.<>]", "", car_dataset$max_power))
+```
+
+```{r}
+#break the torque column into torque_nm and torque_rpm columns
+for (i in 1:nrow(car_dataset)){
+  if(grepl('(kgm@ rpm)',car_dataset$torque[i])){
+    car_dataset$torque_nm[i] <-as.numeric(strsplit(car_dataset$torque[i], "[@]")[[1]][1])*9.80665 #covert from kgm to nm
+    car_dataset$torque_rpm[i] <-as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], "@|-|~")[[1]][2]))
+  }
+  else if (grepl('kgm at',tolower(car_dataset$torque[i])))
+  {
+    car_dataset$torque_nm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], "[at]")[[1]][1]))*9.80665
+    car_dataset$torque_rpm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], c("at|-|~"))[[1]][2]))
+  }
+  else if (grepl('nm at',tolower(car_dataset$torque[i])))
+  {
+    car_dataset$torque_nm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], "[at]")[[1]][1]))
+    car_dataset$torque_rpm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], c("at|-|~"))[[1]][2]))
+  }
+  else if (grepl(' / ',car_dataset$torque[i]))
+  {
+    car_dataset$torque_nm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], " / ")[[1]][1]))
+    car_dataset$torque_rpm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], c(" / "))[[1]][2]))
+  }
+  else if (grepl('kgm@',car_dataset$torque[i]))
+  {
+    car_dataset$torque_nm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], "[@]|\\(")[[1]][1]))*9.80665
+    car_dataset$torque_rpm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], c("@|-|~"))[[1]][2]))
+  }
+  else
+  {
+    car_dataset$torque_nm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], "[@]|\\(")[[1]][1]))
+    car_dataset$torque_rpm[i] <- as.numeric(gsub("[^0-9.<>]", "",strsplit(car_dataset$torque[i], c("@|-|~"))[[1]][2]))
+  }
+}
+```
+
+
+```{r}
+#Remove rows with NA in torque_rpm (35 rows)
+car_dataset <- car_dataset[complete.cases(car_dataset$torque_rpm), ]
+
+```
+
+# Testing for colinearity
+```{r}
+library(mctest)
+firstordermodel<-lm(selling_price~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm, data=car_dataset)
+imcdiag(firstordermodel, method="VIF")
+```
+# Individual t-tests
+```{r}
+summary(firstordermodel)
+```
+
+# Best Subset
+```{r}
+aprs =ols_step_best_subset(firstordermodel, details=TRUE)
+cp<-c(aprs$cp)
+AIC<-c(aprs$aic)
+AdjustedR<-c(aprs$adjr)
+
+cbind(AdjustedR,cp,AIC)
+```
+
+```{r}
+par(mfrow=c(2,2)) # split the plotting panel into a 2 x 2 grid
+plot(aprs$cp,type = "o",pch=10, xlab="Number of Variables",ylab= "Cp")
+plot(aprs$aic,type = "o",pch=10, xlab="Number of Variables",ylab= "AIC")
+plot(aprs$adjr,type = "o",pch=10, xlab="Number of Variables",ylab= "Adjusted R^2")
+```
+
+```{r}
+best.subset<-regsubsets(selling_price~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm, data=car_dataset, nv=11 ) 
+reg.summary = summary(best.subset)
+summary(best.subset)
+```
+
+```{r}
+rsquare<-c(reg.summary$rsq)
+cp<-c(reg.summary$cp)
+AdjustedR<-c(reg.summary$adjr2)
+RMSE<-c(reg.summary$rss)
+BIC<-c(reg.summary$bic)
+cbind(rsquare,cp,BIC,RMSE,AdjustedR)
+```
+
+```{r}
+par(mfrow=c(3,2)) # split the plotting panel into a 3 x 2 grid
+plot(reg.summary$cp,type = "o",pch=10, xlab="Number of Variables",ylab= "Cp")
+plot(reg.summary$bic,type = "o",pch=10, xlab="Number of Variables",ylab= "BIC")
+plot(reg.summary$rsq,type = "o",pch=10, xlab="Number of Variables",ylab= "R^2")
+plot(reg.summary$rss,type = "o",pch=10, xlab="Number of Variables",ylab= "RMSE")
+plot(reg.summary$adjr2,type = "o",pch=10, xlab="Number of Variables",ylab= "Adjusted R^2")
+```
+# F test on seats
+```{r}
+reduced_model = lm(selling_price~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+torque_rpm, data=car_dataset)
+anova(reduced_model, firstordermodel)
+```
+# Interaction models
+```{r}
+intmodel = lm(selling_price~(year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm)^2, data=car_dataset)
+
+# Took out insignifant terms
+reducedint = lm(selling_price~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm + year*km_driven + year*factor(seller_type) + year*factor(transmission) + year*mileage + year*engine + year*max_power + year*torque_rpm + km_driven*factor(seller_type) + km_driven*factor(transmission) + km_driven*max_power + factor(fuel)*factor(transmission) + factor(fuel)*factor(owner) + factor(seller_type)*factor(transmission) + factor(seller_type)*factor(owner) + factor(seller_type)*mileage + factor(seller_type)*engine +factor(seller_type)*max_power + factor(transmission)*factor(owner) + factor(transmission)*mileage + factor(transmission)*engine + factor(transmission)*max_power + factor(transmission)*seats + factor(transmission)*torque_rpm + factor(owner)*mileage + factor(owner)*engine + factor(owner)*torque_rpm + mileage*engine + mileage*max_power + engine*max_power + engine*torque_rpm + max_power*seats + max_power*torque_rpm, data=car_dataset)
+
+# took out interaction between factor owner and torque rpm
+reducedint2 = lm(selling_price~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm + year*km_driven + year*factor(seller_type) + year*factor(transmission) + year*mileage + year*engine + year*max_power + year*torque_rpm + km_driven*factor(seller_type) + km_driven*factor(transmission) + km_driven*max_power + factor(fuel)*factor(transmission) + factor(fuel)*factor(owner) + factor(seller_type)*factor(transmission) + factor(seller_type)*factor(owner) + factor(seller_type)*mileage + factor(seller_type)*engine +factor(seller_type)*max_power + factor(transmission)*factor(owner) + factor(transmission)*mileage + factor(transmission)*engine + factor(transmission)*max_power + factor(transmission)*seats + factor(transmission)*torque_rpm + factor(owner)*mileage + factor(owner)*engine + mileage*engine + mileage*max_power + engine*max_power + engine*torque_rpm + max_power*seats + max_power*torque_rpm, data=car_dataset)
+summary(reducedint2)
+
+reducedint3 = lm(log(selling_price)~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm + year*km_driven + year*factor(seller_type) + year*factor(transmission) + year*mileage + year*engine + year*max_power + year*torque_rpm + km_driven*factor(seller_type) + km_driven*factor(transmission) + km_driven*max_power + factor(fuel)*factor(transmission) + factor(fuel)*factor(owner) + factor(seller_type)*factor(transmission) + factor(seller_type)*factor(owner) + factor(seller_type)*mileage + factor(seller_type)*engine +factor(seller_type)*max_power + factor(transmission)*factor(owner) + factor(transmission)*mileage + factor(transmission)*engine + factor(transmission)*max_power + factor(transmission)*seats + factor(transmission)*torque_rpm + factor(owner)*mileage + factor(owner)*engine + mileage*engine + mileage*max_power + engine*max_power + engine*torque_rpm + max_power*seats + max_power*torque_rpm, data=car_dataset)
+
+```
+# Partial F-test on interaction model 
+```{r}
+anova(reducedint2, reducedint)
+```
+
+
+```{r}
+summary(reducedint2)
+```
+# Higher order
+```{r}
+reducedint2_quad = lm(selling_price~year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+I(engine^2)+max_power+I(max_power^2)+seats+torque_rpm + year*km_driven + year*factor(seller_type) + year*factor(transmission) + year*mileage + year*engine + year*max_power + year*torque_rpm + km_driven*factor(seller_type) + km_driven*factor(transmission) + km_driven*max_power + factor(fuel)*factor(transmission) + factor(fuel)*factor(owner) + factor(seller_type)*factor(transmission) + factor(seller_type)*factor(owner) + factor(seller_type)*mileage + factor(seller_type)*engine +factor(seller_type)*max_power + factor(transmission)*factor(owner) + factor(transmission)*mileage + factor(transmission)*engine + factor(transmission)*max_power + factor(transmission)*seats + factor(transmission)*torque_rpm + factor(owner)*mileage + factor(owner)*engine + mileage*engine + mileage*max_power + engine*max_power + engine*torque_rpm + max_power*seats + max_power*torque_rpm, data=car_dataset)
+
+summary(reducedint2_quad)
+```
+
+# Assumptions
+## Linearality
+```{r}
+ggplot(reducedint2, aes(x=.fitted, y=.resid)) +
+  geom_point() + geom_smooth()+
+  geom_hline(yintercept = 0)
+```
+
+Box-Cox is used mainly to solve the  Nonnormallity and Heteroscedasticity, but it somehow helps to solve the Linearality as well.
+```{r}
+library(MASS)
+bc=boxcox(reducedint2,lambda=seq(-8,8))
+bestlambda=bc$x[which(bc$y==max(bc$y))]
+bestlambda
+bcmodel=lm((((selling_price^0.08080808)-1)/0.08080808) ~ year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm + year*km_driven + year*factor(seller_type) + year*factor(transmission) + year*mileage + year*engine + year*max_power + year*torque_rpm + km_driven*factor(seller_type) + km_driven*factor(transmission) + km_driven*max_power + factor(fuel)*factor(transmission) + factor(fuel)*factor(owner) + factor(seller_type)*factor(transmission) + factor(seller_type)*factor(owner) + factor(seller_type)*mileage + factor(seller_type)*engine +factor(seller_type)*max_power + factor(transmission)*factor(owner) + factor(transmission)*mileage + factor(transmission)*engine + factor(transmission)*max_power + factor(transmission)*seats + factor(transmission)*torque_rpm + factor(owner)*mileage + factor(owner)*engine + mileage*engine + mileage*max_power + engine*max_power + engine*torque_rpm + max_power*seats + max_power*torque_rpm, data=car_dataset)
+summary(bcmodel)
+```
+```{r}
+library(ggplot2)
+ggplot(bcmodel, aes(x=.fitted, y=.resid)) +
+  geom_point() + geom_smooth()+
+  geom_hline(yintercept = 0)
+```
+# Cooks distance for outliers
+
+```{r}
+car_dataset[cooks.distance(reducedint2)>1,]
+plot(reducedint2,pch=18,col="red",which=c(4))
+```
+```{r}
+lev=hatvalues(reducedint2)
+outlier3p = lev[lev>(3*28/7855)]
+#print(outlier3p)
+```
+
+```{r}
+library(MASS)
+bc=boxcox(reducedint2,lambda=seq(-8,8))
+bestlambda=bc$x[which(bc$y==max(bc$y))]
+bestlambda
+bcmodel=lm((((selling_price^0.08080808)-1)/0.08080808) ~ year+km_driven+factor(fuel)+factor(seller_type)+factor(transmission)+factor(owner)+mileage+engine+max_power+seats+torque_rpm + year*km_driven + year*factor(seller_type) + year*factor(transmission) + year*mileage + year*engine + year*max_power + year*torque_rpm + km_driven*factor(seller_type) + km_driven*factor(transmission) + km_driven*max_power + factor(fuel)*factor(transmission) + factor(fuel)*factor(owner) + factor(seller_type)*factor(transmission) + factor(seller_type)*factor(owner) + factor(seller_type)*mileage + factor(seller_type)*engine +factor(seller_type)*max_power + factor(transmission)*factor(owner) + factor(transmission)*mileage + factor(transmission)*engine + factor(transmission)*max_power + factor(transmission)*seats + factor(transmission)*torque_rpm + factor(owner)*mileage + factor(owner)*engine + mileage*engine + mileage*max_power + engine*max_power + engine*torque_rpm + max_power*seats + max_power*torque_rpm, data=car_dataset)
+summary(bcmodel)
+```
+
+
+```{r}
+library(lmtest)
+bptest(firstordermodel)
+bptest(reducedint2)
+bptest(reducedint3)
+bptest(bcmodel)
+```
+
+
+
+Residual Plot
+```{r}
+#residual vs fitted data plot for the finalintermodel model
+ggplot(bcmodel, aes(x=.fitted, y=.resid)) +
+  geom_point() +geom_smooth()+
+  geom_hline(yintercept = 0) 
+
+#a scale location plot
+ggplot(bcmodel, aes(x=.fitted, y=sqrt(abs(.stdresid)))) +
+  geom_point() +
+  geom_hline(yintercept = 0) +
+  geom_smooth()+
+   ggtitle("Scale-Location plot : Standardized Residual vs Fitted values")  
+```
+```{r}
+ks.test(x=residuals(bcmodel),y='pnorm',alternative='two.sided')
+```
+
+
+```{r}
+#Testing for Normality again
+shapiro.test(residuals(bcmodel)[0:5000])
+```
+After the shapiro test, the p-value(0.9545) is much higher than 0.05, which confirms that the residuals are normally distributed.
+
+Histogram for residuals
+```{r}
+library(ggplot2)
+qplot(residuals(bcmodel),
+      geom="histogram",
+      binwidth = 0.5,  
+      main = "Histogram of residuals", 
+      xlab = "residuals", color="red", 
+      fill=I("blue"))
+```
+The outputs show that the residual data is a normal distribution (from histogram). 
+
+Normal Q-Q plot
+```{r}
+#normal QQ plot
+ggplot(car_dataset, aes(sample=bcmodel$residuals)) +
+  stat_qq() +
+  stat_qq_line()
+```
+Q-Q plot compute the slope and intercept of the line connecting the points at specified quartiles of the theoretical and sample distributions. The outputs show that the residual data has normal distribution from Q-Q plot because the points are closed to the the diagonal reference line between -2 and 2 in X.
+
+
+
