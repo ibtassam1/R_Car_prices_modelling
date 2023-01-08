@@ -1,9 +1,15 @@
 ---
 title: "Car prices model"
 date: "2022-11-30"
-output: html_document
+output:
+  html_document:
+    df_print: paged
+  markdown:
+    wrap: 90
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
 ---
-
 This R markdown file shows the data cleaning process as well as the process used to generate first order, interaction model and higher order models. It also shows the assumptions checks performed. However, the main elaboration on what each step means is in the report in PDF format.
 
 ```{r, include=FALSE}
